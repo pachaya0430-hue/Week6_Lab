@@ -17,7 +17,10 @@ func (s *Store) GetMovie(ctx context.Context, id int64) (MovieDetail, error) {
 
 	err := s.Pool.QueryRow(ctx,
 		`SELECT id, title, title_th, original_title, original_language,
-		        overview, overview_th, poster_path, backdrop_path,
+		        overview, overview_th,
+		        CASE WHEN poster_path LIKE 'http%' THEN poster_path
+		             ELSE 'https://image.tmdb.org/t/p/w500' || poster_path END,
+		        backdrop_path,
 		        release_date::text, vote_average::double precision, vote_count,
 		        popularity::double precision, adult, video,
 		        coalesce(overview_th, overview)

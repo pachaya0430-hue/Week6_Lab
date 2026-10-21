@@ -1,22 +1,17 @@
 package mw
 
-import (
-	"net/http"
-)
+import "net/http"
 
-func RequireRole(role string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := WhoFrom(r.Context())
-		if !ok {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+func RequireRole(role string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := claimsFrom(r.Context()); !ok {
+			fail(w, http.StatusUnauthorized, "NO_TOKEN", "กรุณาเข้าสู่ระบบก่อน")
 			return
 		}
-
-		if claims.Role != role {
-			http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+		if Role(r.Context()) != role {
+			fail(w, http.StatusForbidden, "FORBIDDEN", "ต้องเป็น "+role+" เท่านั้น")
 			return
 		}
-
-		next.ServeHTTP(w, r)
-	})
+		next(w, r)
+	}
 }
