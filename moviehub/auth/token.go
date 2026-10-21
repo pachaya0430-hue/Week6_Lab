@@ -1,65 +1,51 @@
 package auth
 
 import (
-	"errors"
-	"time"
+    "errors"
+    "strconv"
+    "time"
 
-	"github.com/golang-jwt/jwt/v5"
+    "github.com/golang-jwt/jwt/v5"
 )
 
 type Claims struct {
-	MemberID int64  `json:"member_id"`
-	Role     string `json:"role"`
-	jwt.RegisteredClaims
+    Role string `json:"role"`
+    jwt.RegisteredClaims
 }
 
 type Issuer struct {
-	Secret []byte
-	TTL    time.Duration
+    Secret []byte
+    TTL    time.Duration
 }
 
+// Issue ออกตั๋วให้สมาชิกหนึ่งคน
 func (i *Issuer) Issue(memberID int64, role string) (string, error) {
-	return GenerateToken(memberID, role, string(i.Secret), i.TTL)
+    now := time.Now()
+    claims := Claims{
+        Role: role,
+        RegisteredClaims: jwt.RegisteredClaims{
+            Subject:   strconv.FormatInt(memberID, 10),
+            IssuedAt:  jwt.NewNumericDate(now),
+            ExpiresAt: jwt.NewNumericDate(now.Add(i.TTL)),
+        },
+    }
+    return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(i.Secret)
 }
 
-func GenerateToken(memberID int64, role, secret string, expiresIn time.Duration) (string, error) {
-	now := time.Now()
-
-	claims := Claims{
-		MemberID: memberID,
-		Role:     role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(expiresIn)),
-			IssuedAt:  jwt.NewNumericDate(now),
-		},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
-}
-
-func ParseToken(tokenString, secret string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(
-		tokenString,
-		&Claims{},
-		func(token *jwt.Token) (any, error) {
-			return []byte(secret), nil
-		},
-		jwt.WithValidMethods([]string{"HS256"}),
-		jwt.WithExpirationRequired(),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	claims, ok := token.Claims.(*Claims)
-	if !ok || !token.Valid {
-		return nil, errors.New("invalid token")
-	}
-
-	if claims.MemberID <= 0 {
-		return nil, errors.New("invalid member ID")
-	}
-
-	return claims, nil
+// Parse ตรวจตั๋ว ถ้าผ่านคืนเลขสมาชิกกับบทบาท
+func (i *Issuer) Parse(tokenString string) (int64, string, error) {
+    var c Claims
+    _, err := jwt.ParseWithClaims(tokenString, &c,
+        func(t *jwt.Token) (any, error) { return i.Secret, nil },
+        jwt.WithValidMethods([]string{"HS256"}),
+        jwt.WithExpirationRequired(),
+    )
+    if err != nil {
+        return 0, "", err
+    }
+    id, err := strconv.ParseInt(c.Subject, 10, 64)
+    if err != nil {
+        return 0, "", errors.New("bad subject")
+    }
+    return id, c.Role, nil
 }

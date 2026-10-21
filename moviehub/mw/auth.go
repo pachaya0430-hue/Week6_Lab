@@ -1,69 +1,67 @@
 package mw
 
 import (
-	"context"
-	"encoding/json"
-	"net/http"
-	"strings"
+    "context"
+    "encoding/json"
+    "net/http"
+    "strings"
 
-	"moviehub/auth"
+    "moviehub/auth"
 )
 
-type contextKey int
+type ctxKey int
 
 const (
-	claimsKey contextKey = iota
+    memberIDKey ctxKey = iota
+    roleKey
 )
 
-func claimsFrom(ctx context.Context) (*auth.Claims, bool) {
-	claims, ok := ctx.Value(claimsKey).(*auth.Claims)
-	return claims, ok
-}
-
-func WhoFrom(ctx context.Context) (*auth.Claims, bool) {
-	return claimsFrom(ctx)
-}
-
+// MemberID คืนเลขสมาชิกจากตั๋วที่ตรวจแล้ว ok = false แปลว่าคำขอนี้ไม่ได้ผ่าน RequireLogin
 func MemberID(ctx context.Context) (int64, bool) {
-	claims, ok := claimsFrom(ctx)
-	if !ok {
-		return 0, false
-	}
-	return claims.MemberID, true
+    id, ok := ctx.Value(memberIDKey).(int64)
+    return id, ok
 }
 
+// Role คืนบทบาทจากตั๋ว ("member" หรือ "admin") ว่างถ้ายังไม่ได้ login
 func Role(ctx context.Context) string {
-	claims, ok := claimsFrom(ctx)
-	if !ok {
-		return ""
-	}
-	return claims.Role
+    role, _ := ctx.Value(roleKey).(string)
+    return role
 }
 
 func fail(w http.ResponseWriter, status int, code, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]string{"code": code, "message": message},
-	})
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    json.NewEncoder(w).Encode(map[string]any{
+        "error": map[string]string{"code": code, "message": message},
+    })
 }
 
-func RequireLogin(issuer *auth.Issuer, next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		header := r.Header.Get("Authorization")
-		parts := strings.SplitN(header, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.TrimSpace(parts[1]) == "" {
-			fail(w, http.StatusUnauthorized, "NO_TOKEN", "กรุณาเข้าสู่ระบบก่อน")
-			return
-		}
+// RequireLogin คือพนักงานตรวจตั๋ว: ต้องมี Authorization: Bearer <token> ที่ตรวจผ่าน
+func RequireLogin(iss *auth.Issuer, next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        header := r.Header.Get("Authorization")
+        if !strings.HasPrefix(header, "Bearer ") {
+            fail(w, http.StatusUnauthorized, "NO_TOKEN", "กรุณาเข้าสู่ระบบก่อน")
+            return
+        }
+        id, role, err := iss.Parse(strings.TrimPrefix(header, "Bearer "))
+        if err != nil {
+            fail(w, http.StatusUnauthorized, "BAD_TOKEN", "ตั๋วไม่ถูกต้องหรือหมดอายุ กรุณาเข้าสู่ระบบใหม่")
+            return
+        }
+        ctx := context.WithValue(r.Context(), memberIDKey, id)
+        ctx = context.WithValue(ctx, roleKey, role)
+        next(w, r.WithContext(ctx))
+    }
+}
 
-		claims, err := auth.ParseToken(parts[1], string(issuer.Secret))
-		if err != nil {
-			fail(w, http.StatusUnauthorized, "BAD_TOKEN", "ตั๋วไม่ถูกต้องหรือหมดอายุ กรุณาเข้าสู่ระบบใหม่")
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), claimsKey, claims)
-		next(w, r.WithContext(ctx))
-	}
+// RequireRole ใช้ต่อจาก RequireLogin: ตั๋วถูกต้องแต่บทบาทไม่ตรง ตอบ 403
+func RequireRole(role string, next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        if Role(r.Context()) != role {
+            fail(w, http.StatusForbidden, "FORBIDDEN", "ต้องเป็น "+role+" เท่านั้น")
+            return
+        }
+        next(w, r)
+    }
 }

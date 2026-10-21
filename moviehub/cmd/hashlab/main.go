@@ -1,38 +1,35 @@
 package main
 
 import (
-	"fmt"
-	"time"
+    "fmt"
+    "strings"
+    "time"
 
-	"moviehub/auth"
+    "golang.org/x/crypto/bcrypt"
+
+    "moviehub/auth"
 )
 
 func main() {
-	password := "popcorn2569"
+    // 1) รหัสเดียวกัน บดสองครั้ง
+    a, _ := auth.HashPassword("popcorn2569")
+    b, _ := auth.HashPassword("popcorn2569")
+    fmt.Println(a)
+    fmt.Println(b)
 
-	hashA, err := auth.HashPassword(password)
-	if err != nil {
-		panic(err)
-	}
+    // 2) ตรวจรหัสถูกกับรหัสผิด
+    fmt.Println("popcorn2569 ตรงกับ a:", auth.CheckPassword(a, "popcorn2569"))
+    fmt.Println("popcorn2569 ตรงกับ b:", auth.CheckPassword(b, "popcorn2569"))
+    fmt.Println("popcorn2568 ตรงกับ a:", auth.CheckPassword(a, "popcorn2568"))
 
-	hashB, err := auth.HashPassword(password)
-	if err != nil {
-		panic(err)
-	}
+    // 3) หมุนปุ่มความช้า
+    for _, cost := range []int{8, 10, 12} {
+        start := time.Now()
+        bcrypt.GenerateFromPassword([]byte("popcorn2569"), cost)
+        fmt.Printf("cost %d ใช้เวลา %v\n", cost, time.Since(start).Round(time.Millisecond))
+    }
 
-	fmt.Println(hashA)
-	fmt.Println(hashB)
-	fmt.Println(password, "ตรงกับ a:", auth.CheckPassword(password, hashA))
-	fmt.Println(password, "ตรงกับ b:", auth.CheckPassword(password, hashB))
-	fmt.Println("popcorn2568 ตรงกับ a:", auth.CheckPassword("popcorn2568", hashA))
-
-	for _, cost := range []int{8, 10, 12} {
-		start := time.Now()
-		_, err := auth.HashPasswordWithCost(password, cost)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-		fmt.Printf("cost %d ใช้เวลา %v\n", cost, time.Since(start).Round(time.Millisecond))
-	}
+    // 4) เพดาน 72 ไบต์
+    _, err := auth.HashPassword(strings.Repeat("a", 73))
+    fmt.Println("73 ไบต์:", err)
 }
